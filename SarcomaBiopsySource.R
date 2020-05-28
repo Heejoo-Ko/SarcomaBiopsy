@@ -153,9 +153,13 @@ out$FNCLCC_grade<-ifelse(out$FNCLCC_grade=="UK",NA,out$FNCLCC_grade)
 #Q5 : 변수들 클래스 설정은 안하나용?
 #A5 : 분석하려면 해야 됨. 할 수 있으면 미리 해보고 내가 피드백 줄게.
 
+var.factor<-c(3:8,10,11,14:22,24:26,28:30)
+for(i in var.factor)
+ out[[i]]<-as.factor(out[[i]])
+
+for(i in 1:ncol(out)){ cat(i,":",names(out)[i],"-(",class(out[[i]]),")\n") }
 out %>% head
 out %>% summary
-
 
 
 

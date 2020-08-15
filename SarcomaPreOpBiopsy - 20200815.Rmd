@@ -1,0 +1,436 @@
+---
+title: "SarcomaPreOpBiopsy"
+author: "Heejoo"
+date: "`r Sys.Date()`"
+output:
+  html_document: 
+    dev: jpeg
+    df_print: paged
+    fig_height: 6
+    fig_width: 10
+    highlight: textmate
+    theme: cosmo
+    toc: yes
+    toc_float:
+      collapsed: no
+    code_folding: show
+  word_document:
+    toc: yes
+    toc_depth: '3'
+  bookdown::word_document2:
+    fig_caption: yes
+editor_options:
+  chunk_output_type: console
+always_allow_html: yes
+---
+
+<style>
+   p {line-height: 2.5em;}
+   pre, code {white-space:pre !important; overflow-x:scroll !important}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F)
+```
+
+## Load & Input
+```{r,echo=FALSE}
+library(readxl)
+library(dplyr)
+library(tableone)
+library(DT)
+
+setwd("C:/Users/USER/Desktop/2020-1학기/의학통계/sarcoma/preOP biopsy")
+a<-excel_sheets("sarcoma data sheet SMC 20200811.xlsx") %>% 
+  lapply(function(x){read_excel("sarcoma data sheet SMC 20200811.xlsx",sheet=x,skip=2)})
+b<-a[[1]] %>% 
+  left_join(a[[2]],by="환자번호") %>% 
+  left_join(a[[3]],by="환자번호") %>% 
+  left_join(a[[4]],by="환자번호") %>% 
+  left_join(a[[5]],by="환자번호") %>% 
+  left_join(a[[6]],by="환자번호") %>% 
+  left_join(a[[7]],by="환자번호")
+
+b[["ECOG\r\n\r\n0/1/2/3/4"]][which(is.na(b[["ECOG\r\n\r\n0/1/2/3/4"]]))]<-"0"
+b[["EBL\r\n(ml)"]]<-ifelse(b[["EBL\r\n(ml)"]]=="UK",NA,as.numeric(b[["EBL\r\n(ml)"]]))
+b$Age<-as.numeric(b[["수술날짜\r\n\r\ndd-mm-yyyy.x"]]-b[["생년월일\r\n\r\ndd-mm-yyyy"]])/365.25
+b$환자번호 <- as.integer(b$환자번호)
+```
+
+## Methods
+```{r,echo=FALSE}
+
+c <- left_join(b, read.csv("preop Bx. RPS 여부 20200712.csv")) %>%
+  filter(`Primary 수술여부\r\n\r\n0. Primary tumor\r\n1. Residual after incomplete resection\r\n2. Local recurrence.x` == "0" & `환자번호` != "21733889") %>% 
+  filter(!(`수술 전 Biopsy\r\n\r\n0. None\r\n1. Primary site\r\n2. Local recurrence site\r\n3. Metastatic site` == 1 & `Type of needle\r\n\r\n0. Core\r\n1. FNA\r\n2. N/A\r\n3. Unknown` %in% 2:3)) %>%
+  mutate(biopsy_preop_primary = as.integer(`수술 전 Biopsy\r\n\r\n0. None\r\n1. Primary site\r\n2. Local recurrence site\r\n3. Metastatic site` == "1"),
+         type_needle = `Type of needle\r\n\r\n0. Core\r\n1. FNA\r\n2. N/A\r\n3. Unknown`) %>% 
+  mutate(type_needle = ifelse(type_needle == 0, "Core needle", ifelse(type_needle == 1, "FNA", "Excisional biopsy")))
+
+out<-c %>% select(환자번호,Age,`성별\r\n\r\nM/F`,biopsy_preop_primary,type_needle)
+
+names(out)[3]<-"Sex"; names(out)[1]<-"ID"
+out$Sex <- as.factor(out$Sex)
+out[out$ID == 31050857, "Sex"] <- "F"
+```
+
+##Data Collecting
+```{r,echo=FALSE}
+#Biopsy
+
+out$liposarcoma_preop <- as.integer(c[["preOP Bx. 결과\r\n\r\n0. WD \r\n1. DD \r\n2. Pleomorphic \r\n3. LMS\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] %in% c("0", "1", "1or 2", "2"))
+out$liposarcoma_postop <- as.integer((c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] %in% c(0, 1, 2)) |
+                                       (c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] == 7) &
+                                       grepl("liposarcoma|Liposarcoma", c[["Other \r\n\r\ncomment"]]))
+out$RPS_preop <- as.integer(c$preOP.Retroperitoneal.sarcoma..RPS.)
+out$RPS_postop <- as.integer(c$post.OP.retroperitoneal.sarcoma..RPS. | 
+                               c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] == 5)
+
+out$DDLPS_postop <- as.integer(c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]] == 1)
+out$histology_postop <- c[["병리결과\r\n\r\n0. WD Liposarcoma\r\n1. DD Liposarcoma\r\n2. Pleomorphic Liposarcoma\r\n3. Leiomyosarcoma\r\n4. MPNST\r\n5. Solitary fibrous tumor\r\n6. PEComa\r\n7. Other"]]
+
+#Patients survival rate-death,day-FU
+out$death<-as.integer(c[["사망여부\r\n\r\n0.Alive\r\n1.Dead\r\n2.Unknown.y"]])
+out$death <- ifelse(out$death == 2, NA, out$death) ## Death 2 -> NA 로 수정.
+out$day_FU<-as.numeric(c[["마지막 f/u\r\n\r\ndd-mm-yyyy"]]-c[["수술날짜\r\n\r\ndd-mm-yyyy.x"]])
+
+#Local recurrence free survival rate-recur_local,recur_site,recur_day
+out$recur_local<-c[["재발#1\r\n\r\n0: 무\r\n1: 유.x"]]
+out$recur_site <- c$`Site of recurrence`
+out$recur_site[is.na(out$recur_site)] <- -1
+out$recur_day<-ifelse(out$recur_local==1,
+                      as.numeric(as.Date(as.integer(c[["Date of local recurrence"]]),origin="1899-12-30")-as.Date(c[["수술날짜\r\n\r\ndd-mm-yyyy.x"]])),
+                      as.numeric(c[["마지막 f/u\r\n\r\ndd-mm-yyyy"]]-c[["수술날짜\r\n\r\ndd-mm-yyyy.x"]]))
+out$recur_day[is.na(out$recur_day)] <- as.numeric(as.Date("02/10/18", "%m/%d/%y") - as.Date("10/02/12", "%m/%d/%y"))
+
+#RT-RTdose,RTx_tissue_expander
+out$RTx_dose<-as.numeric(c[["RT dose\r\n(Gy)"]])
+cond1<-c[["RT timing\r\n\r\n0.None \r\n1.Preop only\r\n2. IORT only\r\n3.Preop + IORT\r\n4.Postop only\r\n5.Preop + postop boost\r\n6.IORT + postop"]] %in% c("1","5")
+cond2<-(c[["RT timing\r\n\r\n0.None \r\n1.Preop only\r\n2. IORT only\r\n3.Preop + IORT\r\n4.Postop only\r\n5.Preop + postop boost\r\n6.IORT + postop"]] %in% "4") & (c[["Tisuue expander insertion \r\n유뮤\r\n\r\n0. No\r\n1. Yes"]]=="1")
+out$RTx_tissue_expander<-as.integer(cond1|cond2)
+
+#Neoadjuvant therapy
+out$RTx_preop<-as.integer(c[["수술전 \r\nRT 여부\r\n\r\n0.No\r\n1.Yes"]])
+out$Chemo_preop<-as.integer(c[["수술전 \r\nChemo 여부\r\n\r\n0.No\r\n1.Yes"]])
+out$Neoadjuvant<-as.integer(out$RTx_preop|out$Chemo_preop)
+
+out$meta_liver<-c[["Liver metastasis\r\n\r\n0. No\r\n1. Yes"]]
+out$meta_liver <- ifelse(out$meta_liver == 3, NA, out$meta_liver)  ## 3인 것 발견. NA로 수정
+out$meta_lung<-c[["Lung metastasis\r\n\r\n0. No\r\n1. Yes"]]
+out$meta_bm<-c[["Bone metastasis\r\n\r\n0. No\r\n1. Yes"]]
+out$meta_abd<-c[["Intra-abdominal metastasis\r\n\r\n0. No\r\n1. Yes"]]
+out$multifocal<-c[["Mutifocality 여부\r\n\r\n0. No\r\n1. Yes"]]
+out$meta_lung_liver_abd_bm <- as.integer(out$meta_lung | out$meta_liver | out$meta_bm | out$meta_abd)
+
+
+#동반절제 장기수
+out$resection_liver <- as.integer(c[["동반절제 장기\r\nLiver\r\n\r\n0. No\r\n1. Yes"]])
+out$resection_largebowel <- as.integer(c[["동반절제 장기\r\nLeft colon\r\n\r\n0. No\r\n1. Yes"]] == 1 |
+                        c[["동반절제 장기\r\nRight colon\r\n\r\n0. No\r\n1. Yes"]] == 1 |
+                        c[["동반절제 장기\r\nRectum\r\n\r\n0. No\r\n1. Yes"]] == 1)
+out$resection_uterus <- as.integer(c[["동반절제 장기\r\nUterus\r\n\r\n0. No\r\n1. Yes"]])
+out$resection_kidney <- as.integer(c[["동반절제 장기\r\nKidney\r\n\r\n0. No\r\n1. Yes"]])
+out$resection_spleen <- as.integer(c[["동반절제 장기\r\nspleen\r\n\r\n0. No\r\n1. Yes"]])
+out$resection_pancreas <- as.integer(c[["동반절제 \r\n장기\r\nPanreatico-duodenectomy\r\n\r\n0. No\r\n1. Yes"]] == 1
+                      | c[["동반절제 \r\n장기\r\nDistal pancreas\r\n\r\n0. No\r\n1. Yes"]] == 1)
+out$resection_smallbowel <- as.integer(c[["동반절제 장기\r\nSmall bowel\r\n\r\n0. No\r\n1. Yes"]] == 1
+                      | c[["동반절제 장기\r\nDuodenum\r\n\r\n0. No\r\n1. Yes"]] == 1)
+out$resection_stomach <- as.integer(c[["동반절제 장기\r\nStomach\r\n\r\n0. No\r\n1. Yes"]])
+
+out$num_resected_organ <- rowSums(select(out, grep("resection_", names(out), value = T)), na.rm = T)
+
+#RT
+out$RTx_total<-as.integer(c[["수술 전후 RT 여부\r\n\r\n0.No\r\n1.Yes"]])
+out$Rtx_tissue_expander[out$RTx_total == 0] <- NA
+
+#Chemo
+out$Chemo_postop<-as.integer(c[["Adjuvant chemo 여부\r\n\r\n0.No\r\n1.Yes"]])
+out$Chemo_both<-as.integer(out$Chemo_preop|out$Chemo_postop)
+
+#Risk factor analysis for tumor recurrence
+#tumor size
+out$tumor_size<-c[["종양 크기\r\n(Tumor size, mm)\r\n다발성인 경우 largest tumor size"]]
+
+#resection margin
+out$resection_margin <- as.integer(c[["Surgical margins\r\n\r\n0. R0/R1\r\n1. R2: post OP 1주 CT에서 있을시 포함,debulking op\r\n2. Not available"]])
+out$resection_margin<-ifelse(out$resection_margin=="2",NA,out$resection_margin)
+
+#FNCLCC tumor grade
+out$FNCLCC_grade<-c[["FNCLCC grade\r\n\r\n1/2/3/UK"]]
+out$FNCLCC_grade<-ifelse(out$FNCLCC_grade=="UK",NA,out$FNCLCC_grade)
+
+out$FNCLCC_grade1 <- as.integer(out$FNCLCC_grade == 1)
+out$FNCLCC_grade2 <- as.integer(out$FNCLCC_grade == 2)
+out$FNCLCC_grade3 <- as.integer(out$FNCLCC_grade == 3)
+out$FNCLCC_NA <-as.integer(is.na(out$FNCLCC_grade))
+
+#sarcomatosis pattern
+out$sarcomatosis_pattern <- as.integer(c[["Site of recurrence"]])
+
+#CD complication
+out$ClavienDindoComplication01 <- as.integer(c[["Clavien-Dindo complication \r\n\r\n0. No\r\n1. Yes"]])
+out$ClavienDindoComplication_wo_2 <-ifelse(out$ClavienDindoComplication01 == 1 & c[["Clavien-Dindo grade \r\n\r\n2/3a/3b/4a/4b/5"]]=="2",0,out$ClavienDindoComplication01)
+out$ClavienDindoGrade <- c[["Clavien-Dindo grade \r\n\r\n2/3a/3b/4a/4b/5"]]
+out$ClavienDindoGrade <- factor(ifelse(out$ClavienDindoGrade== "0" | is.na(out$ClavienDindoGrade) , "1", out$ClavienDindoGrade))
+
+out
+```
+
+Variable categorizing
+```{r,echo=FALSE}
+my_vars<-names(out)
+factor_vars <- c(names(out)[sapply(out, function(x){length(table(x))}) <= 8])
+conti_vars <- setdiff(my_vars, factor_vars)
+for (v in factor_vars){out[[v]] <- factor(out[[v]])}
+#factor_vars 중 fisher test 해야하는 변수들
+vars.fisher <- sapply(factor_vars,
+                      function(x){is(tryCatch(chisq.test(table(out[["biopsy_preop_primary"]], out[[x]])),
+                                              error = function(e) e, warning=function(w) w), "warning")})
+vars.fisher <- factor_vars[vars.fisher]
+```
+
+### Table1 : preOP biopsy 의 정확성
+```{r,echo=FALSE}
+out %>% filter(biopsy_preop_primary==1) -> out.biopsy
+out.biopsy$RPS_preop<-ifelse(out.biopsy$RPS_preop=="0","No","Yes")
+out.biopsy$RPS_postop<-ifelse(out.biopsy$RPS_postop=="0","No","Yes")
+out.biopsy$RTx_tissue_expander<-ifelse(out.biopsy$RTx_tissue_expander=="0","No","Yes")
+out.biopsy$RPS_preop<-factor(out.biopsy$RPS_preop,levels=c("Yes","No"))
+out.biopsy$RPS_postop<-factor(out.biopsy$RPS_postop,levels=c("Yes","No"))
+out.biopsy$Rtx_tissue_expander<-factor(out.biopsy$Rtx_tissue_expander,levels=c("Yes","No"))
+
+table.acc<-table(out.biopsy$RPS_preop,out.biopsy$RPS_postop)
+table.acc<-cbind(c("RPS_preop",""),rownames(table.acc),table.acc)
+#datatable(table.acc)
+
+tb <- table(out.biopsy$RPS_preop,out.biopsy$RTx_tissue_expander)
+tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+p <- fisher.test(tb)$p.value
+
+table1<-cbind(table.acc[,3],tb.out,c(ifelse(p < 0.001, "< 0.001", round(p, 3)),""))
+table1<-rbind(c(as.integer(summary(out.biopsy$RTx_tissue_expander))[1],"Yes","No",""),table1)
+colnames(table1)<-c("RPS+","preOP RTx + RTx with TE"," ","p-value")
+rownames(table1)<-c("","RPS_preop (%)","")
+
+datatable(table1)
+```
+
+### Table2 : preOP biopsy (+) or (-) group의 차이 확인
+```{r,echo=FALSE}
+table2_vars<-c("Age","Sex","tumor_size","liposarcoma_preop","liposarcoma_postop",
+               "DDLPS_postop","type_needle",
+               "FNCLCC_grade","meta_lung_liver_abd_bm",
+               "multifocal","num_resected_organ","RTx_total",
+               "Chemo_both","resection_margin")
+table2_factor_vars<-table2_vars[table2_vars %in% factor_vars]
+table2_conti_vars<-table2_vars[table2_vars %in% conti_vars]
+
+table2<- lapply(table2_vars, function(va){
+  if(va=="FNCLCC_grade"){
+    tb <- table(out[[va]], out[["biopsy_preop_primary"]])
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <- cbind(paste0(va, " (%)"),"","","",ifelse(p < 0.001, "< 0.001", round(p, 3)))
+    
+    tb<-table(out[["FNCLCC_grade1"]],out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    out.final <-rbind(out.final,
+                      c("","Grade 1",tb.out[2,],ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    tb<-table(out[["FNCLCC_grade2"]],out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    out.final <-rbind(out.final,
+                      c("","Grade 2",tb.out[2,],ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    tb<-table(out[["FNCLCC_grade3"]],out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    out.final <-rbind(out.final,
+                      c("","Grade 3",tb.out[2,],ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    tb<-table(out[["FNCLCC_NA"]],out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    out.final <-rbind(out.final,
+                      c("","NA",tb.out[2,],""))
+    
+    return(out.final)
+    
+  } else if(va=="RTx_total"){
+    tb <- table(out[[va]], out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <-rbind(c("Radiation Therapy","","","",""),
+                      c("n","",tb.out[2,],ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    out.rtx<-out %>% filter(`RTx_total`=="1")
+    #"RTx_dose"
+    forms <- as.formula(paste0("RTx_dose", "~ biopsy_preop_primary"))
+    mean_sd <- aggregate(forms, data = out.rtx, FUN = function(x){c(mean = mean(x), sd = sd(x))})
+    
+    p<-t.test(forms, data = out.rtx, var.equal=F)$p.value
+    
+    out.final <- rbind(out.final,
+                  c("RTx_dose", "",
+                  paste0(round(mean_sd[["RTx_dose"]][, "mean"], 2), " (", round(mean_sd[["RTx_dose"]][, "sd"], 2), ")"),
+                  ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    #"RTx_tissue_expander"
+    tb <- table(out.rtx[["RTx_tissue_expander"]], out.rtx[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    
+    p <- ifelse("RTx_tissue_expander" %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <- rbind(out.final,
+                       c(paste0("RTx_tissue_expander", " (%)"),"Yes",
+                       tb.out[2,],ifelse(p < 0.001, "< 0.001", round(p, 3))))
+    
+    
+  } else if (va %in% table2_conti_vars){
+
+    forms <- as.formula(paste0(va, "~ biopsy_preop_primary"))
+    mean_sd <- aggregate(forms, data = out, FUN = function(x){c(mean = mean(x), sd = sd(x))})
+    
+    p<-t.test(forms, data = out, var.equal=F)$p.value
+    
+    out.final <- c(va, "",
+                   paste0(round(mean_sd[[va]][, "mean"], 2), " (", round(mean_sd[[va]][, "sd"], 2), ")"),
+                   ifelse(p < 0.001, "< 0.001", round(p, 3)))
+    
+    return(out.final)
+    
+  } else if(va %in% table2_factor_vars) {
+    tb <- table(out[[va]], out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <- cbind(c(paste0(va, " (%)"), rep("", nrow(tb.out) - 1)),
+                         rownames(tb),
+                         tb.out,
+                         c(ifelse(p < 0.001, "< 0.001", round(p, 3)), rep("", nrow(tb.out) - 1)))
+    return(out.final)
+  }
+}) %>% Reduce(rbind, .)
+
+table2<-rbind(c("n","",as.integer(summary(out$biopsy_preop_primary))[1:2],""),table2)
+colnames(table2) <- c("Variable", "Subgroup", "preOP Bx (-)", "preOP Bx (+)", "p-value")
+rownames(table2)<-NULL
+datatable(table2)
+
+```
+
+### Supplement table 1. Histologic subtypes of retroperitoneal sarcoma
+```{r,echo=FALSE}
+
+tb<-table(out$histology_postop,out$biopsy_preop_primary)
+tb.prop <- round(100 * prop.table(tb, 1), 2)      ## prop.table : 1- byrow 2 - bycol
+tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+
+supplement.table1<-cbind(summary(factor(out$histology_postop)),tb.out[,2])
+colnames(supplement.table1)<-c("Total","preOP Bx + (%)")
+rownames(supplement.table1)<-c("WD Liposarcoma","DD Liposarcoma","Pleomorphic Liposarcoma","Leiomyosarcoma",
+                               "MPNST","Solitary fibrous tumor","PEComa","Other")
+
+datatable(supplement.table1)
+  
+```
+
+### Figure1 : preOP RPS 의 효용성 patient survival, local recurrence free survival (RPS, LPS, DDLPS)
+Recur KM plots
+```{r,echo=FALSE}
+library(jskm)
+library(survival)
+
+out.rps<-out %>% filter(RPS_postop=="1")
+out.lps<-out %>% filter(liposarcoma_postop=="1")
+out.ddlps<-out %>% filter(DDLPS_postop=="1")
+
+recurfit_rps<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ biopsy_preop_primary, data = out.rps)
+jskm(recurfit_rps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Recurrence among RPS(+)")
+
+recurfit_lps<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ biopsy_preop_primary, data = out.lps)
+jskm(recurfit_lps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Recurrence among LPS(+)")
+
+recurfit_ddlps<-survfit(Surv(recur_day, as.integer(as.vector(recur_local))) ~ biopsy_preop_primary, data = out.ddlps)
+jskm(recurfit_ddlps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Recurrence among DDLPS(+)")
+```
+
+Death KM plots
+```{r,echo=FALSE}
+
+deathfit_rps<-survfit(Surv(day_FU, as.integer(as.vector(death))) ~ biopsy_preop_primary, data = out.rps)
+jskm(deathfit_rps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Death among RPS(+)")
+
+deathfit_lps<-survfit(Surv(day_FU, as.integer(as.vector(death))) ~ biopsy_preop_primary, data = out.lps)
+jskm(deathfit_lps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Death among LPS(+)")
+
+deathfit_ddlps<-survfit(Surv(day_FU, as.integer(as.vector(death))) ~ biopsy_preop_primary, data = out.ddlps)
+jskm(deathfit_ddlps, timeby=60, cumhaz = T, mark=F, table = T, xlims=c(0,720), ylims=c(0,0.6),
+     main="Death among DDLPS(+)")
+```
+
+### Table3 : pattern of recurrence after preOP biopsy (안전성)
+```{r,echo=FALSE}
+#재발1 sheet의 distant metastasis 열 추가할 것이라고 하셨는데 아직 데이터 업데이트 안됨. 
+out$sarcomatosis_pattern<-factor(ifelse(out$sarcomatosis_pattern=="1","Local",
+                                 ifelse(out$sarcomatosis_pattern=="2","Retroperitoneal  other than primary",
+                                        ifelse(out$sarcomatosis_pattern=="3","Sarcomatosis",
+                                               ifelse(out$sarcomatosis_pattern=="4","Other",NA)))),
+                                 levels=c("Local","Retroperitoneal  other than primary","Sarcomatosis","Needle tract recurrence","Other"))
+
+table3_vars<-c("recur_local","sarcomatosis_pattern")
+
+table3<- lapply(table3_vars, function(va){
+  if (va=="recur_local"){
+    
+    tb <- table(out[[va]], out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <- c("None (%)","",tb.out[1,],ifelse(p < 0.001, "< 0.001", round(p, 3)))
+    return(out.final)
+  } else{
+    
+    tb <- table(out[[va]], out[["biopsy_preop_primary"]])
+    tb.prop <- round(100 * prop.table(tb, 2), 2)      ## prop.table : 1- byrow 2 - bycol
+    tb.out <- matrix(paste0(tb, " (", tb.prop, ")"), ncol =2)
+    
+    p <- ifelse(va %in% vars.fisher, fisher.test(tb)$p.value, chisq.test(tb)$p.value)
+    
+    out.final <- cbind(c(paste0(va, " (%)"), rep("", nrow(tb.out) - 1)),
+                       rownames(tb),
+                       tb.out,
+                       c(ifelse(p < 0.001, "< 0.001", round(p, 3)), rep("", nrow(tb.out) - 1)))
+    return(out.final)
+  }
+}) %>% Reduce(rbind, .)
+
+table3<-rbind(c("n","",as.integer(summary(out$biopsy_preop_primary))[1:2],""),table3)
+colnames(table3) <- c("Variable", "Subgroup", "preOP Bx (-)", "preOP Bx (+)", "p-value")
+rownames(table3)<-NULL
+datatable(table3)
+
+```
+
+### Table4 : local recurrence risk factor analysis
+```{r,echo=FALSE}
+```
